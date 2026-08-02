@@ -1,0 +1,6 @@
+{
+  "name": "MapLibre ESM App",
+  "description": "A MapLibre GL JS application using esm.sh for ESM module loading.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
