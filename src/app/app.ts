@@ -89,12 +89,14 @@ declare const mapboxgl: any;
         [showWaveRings]="showWaveRings()"
         [isDarkMode]="isDarkMode()"
         [intensityDisplayMode]="intensityDisplayMode()"
+        [realtimeDataType]="realtimeDataType()"
         (resetMapView)="resetMapView()"
         (focusDetectedGrid)="focusOnDetectedGrid()"
         (triggerEewSimulation)="triggerEewSimulation()"
         (toggleWaveRings)="toggleWaveRings()"
         (toggleDarkMode)="toggleDarkMode()"
         (setIntensityDisplayMode)="setIntensityDisplayMode($event)"
+        (setRealtimeDataType)="setRealtimeDataType($event)"
         (playDetectionSound)="playDetectionSound($event)"
         (playShindoAudio)="playShindoAudio()">
       </app-controls-panel>
@@ -185,6 +187,19 @@ export class App implements AfterViewInit, OnDestroy {
   hasDetectedGrids: WritableSignal<boolean> = signal(false);
   showWaveRings: WritableSignal<boolean> = signal(true);
   intensityDisplayMode: WritableSignal<'areas' | 'stations' | 'both'> = signal('both');
+  realtimeDataType: WritableSignal<'jma_s' | 'jma_b'> = signal('jma_s');
+
+  setRealtimeDataType(type: 'jma_s' | 'jma_b') {
+    this.realtimeDataType.set(type);
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('realtime_data_type', type);
+      } catch {
+        // ignore
+      }
+    }
+    this.fetchTime();
+  }
   p2pQuakeData = this.p2pQuakeService.p2pQuakeData;
   p2pHistoryList = this.p2pQuakeService.p2pHistoryList;
   selectedQuake = this.p2pQuakeService.selectedQuake;
@@ -399,6 +414,15 @@ export class App implements AfterViewInit, OnDestroy {
 
   async ngAfterViewInit() {
     if (typeof window !== 'undefined') {
+      try {
+        const savedType = localStorage.getItem('realtime_data_type');
+        if (savedType === 'jma_s' || savedType === 'jma_b') {
+          this.realtimeDataType.set(savedType);
+        }
+      } catch {
+        // ignore
+      }
+
       this.loadAreaAndStationData();
       this.fetchSeismicData();
       const urlParams = new URLSearchParams(window.location.search);
@@ -1103,6 +1127,7 @@ export class App implements AfterViewInit, OnDestroy {
     if (!this.map || !this.map.getSource('p2p-epicenter')) return;
     
     const geojson: any = { type: 'FeatureCollection', features: [] };
+    const isRealtimeTab = this.activeTab() === 'realtime';
     
     const eew = this.eewData();
     if (eew && this.isActiveEEW(eew) && typeof eew.Longitude === 'number' && typeof eew.Latitude === 'number' && eew.Longitude !== 0 && eew.Latitude !== 0) {
@@ -1114,6 +1139,17 @@ export class App implements AfterViewInit, OnDestroy {
         },
         properties: { isEEW: true }
       });
+    } else if (isRealtimeTab) {
+      if (this.estEpi !== null && Array.isArray(this.estEpi) && this.estEpi.length === 2) {
+        geojson.features.push({
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: this.estEpi
+          },
+          properties: { isEst: true }
+        });
+      }
     } else {
       const targetData = data || this.selectedQuake();
       if (targetData) {
@@ -1284,84 +1320,11 @@ export class App implements AfterViewInit, OnDestroy {
       this.map.getSource('detected').setData(detectedGeojson);
     }
 
-    const detectedStations = Array.from(this.stationsState.values()).filter(s => s.event !== null);
-    if (detectedStations.length >= 1) {
-      const distanceKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-        const p = 0.017453292519943295;
-        const c = Math.cos;
-        const a = 0.5 - c((lat2 - lat1) * p) / 2 + c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p)) / 2;
-        return 12742 * Math.asin(Math.sqrt(a));
-      };
-      
-      const depth = 10;
-      const getTravelTime = (d: number, type: 'P' | 'S') => Math.sqrt(d * d + depth * depth) / (type === 'P' ? 6.5 : 3.5);
-
-      let first = detectedStations[0];
-      for (const st of detectedStations) {
-        if (st.event.startTime < first.event.startTime) first = st;
-      }
-
-      const tLat = first.lonlat[1], tLng = first.lonlat[0];
-      let tOt = first.event.startTime - getTravelTime(0, 'P') * 1000;
-      
-      if (detectedStations.length < 3) {
-        this.estEpi = [tLng, tLat];
-        this.estOrigin = tOt;
-      } else {
-        const calcErr = (lat: number, lng: number, ot: number) => {
-          let err = 0;
-          for (const st of detectedStations) {
-            const d = distanceKm(lat, lng, st.lonlat[1], st.lonlat[0]);
-            const ext = ot + getTravelTime(d, 'P') * 1000;
-            err += Math.pow((st.event.startTime - ext) / 1000, 2);
-          }
-          return err;
-        };
-
-        let minErr = calcErr(tLat, tLng, tOt);
-        let bLat = tLat, bLng = tLng;
-
-        const dirs = [
-          [1, 0], [-1, 0], [0, 1], [0, -1],
-          [1, 1], [1, -1], [-1, 1], [-1, -1]
-        ];
-
-        [0.5, 0.2, 0.05, 0.01].forEach(step => {
-          let improved = true;
-          let iterations = 0;
-          while (improved && iterations < 50) {
-            improved = false;
-            iterations++;
-            for (const dir of dirs) {
-              const rawLat = bLat + dir[0] * step;
-              const rawLng = bLng + dir[1] * step;
-              const nLat = Math.min(50.0, Math.max(20.0, rawLat));
-              const nLng = Math.min(150.0, Math.max(120.0, rawLng));
-
-              const nd = distanceKm(nLat, nLng, first.lonlat[1], first.lonlat[0]);
-              const not = first.event.startTime - getTravelTime(nd, 'P') * 1000;
-              const err = calcErr(nLat, nLng, not);
-
-              if (minErr - err > 1e-4) {
-                minErr = err;
-                bLat = nLat;
-                bLng = nLng;
-                tOt = not;
-                improved = true;
-              }
-            }
-          }
-        });
-        
-        this.estEpi = [bLng, bLat];
-        this.estOrigin = tOt;
-      }
-    } else {
-      this.estEpi = null;
-      this.estOrigin = null;
-    }
+    this.estEpi = null;
+    this.estOrigin = null;
 
     this.hasDetectedGrids.set(activeGrids.size > 0);
+    this.updateP2pEpicenterMap();
     this.updateLayerVisibility();
     this.saveDetectedEventsToStorage();
   }
@@ -1532,11 +1495,12 @@ export class App implements AfterViewInit, OnDestroy {
   private fetchAndProcessImage(time: string) {
     if (!this.geojson) return;
 
+    const dataType = this.realtimeDataType();
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = `/api/realtime-img?time=${time}`;
+    img.src = `/api/realtime-img?time=${time}&type=${dataType}`;
     this.currentGifUrl.set(img.src);
-    this.acmapGifUrl.set(`/api/acmap-img?time=${time}`);
+    this.acmapGifUrl.set(`/api/acmap-img?time=${time}&type=${dataType}`);
     this.estshindoGifUrl.set(`/api/estshindo-img?time=${time}`);
     img.onload = () => {
       const canvas = document.createElement('canvas');

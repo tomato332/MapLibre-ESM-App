@@ -7,6 +7,7 @@ export interface WidgetSettings {
   showWaveRingsToggle: boolean;
   showDarkModeToggle: boolean;
   showIntensityMode: boolean;
+  showRealtimeDataType: boolean;
   showSoundPreview: boolean;
 }
 
@@ -124,6 +125,32 @@ export interface WidgetSettings {
             </button>
           }
 
+          <!-- Realtime Data Type Toggle (jma_s Surface vs jma_b Borehole) -->
+          @if (widgets().showRealtimeDataType) {
+            <div [class]="'backdrop-blur-md border rounded-xl shadow-lg p-2 flex flex-col gap-1.5 transition-all w-52 ' + (isDarkMode() ? 'bg-zinc-800/90 border-zinc-700' : 'bg-white/90 border-zinc-200')">
+              <div [class]="'text-[11px] font-bold flex items-center justify-between px-1 ' + (isDarkMode() ? 'text-zinc-300' : 'text-zinc-600')">
+                <span>실시간 관측 센서</span>
+                <span class="text-[10px] text-zinc-400 font-normal">표층 / 지중</span>
+              </div>
+              <div class="grid grid-cols-2 gap-1 text-[11px] font-bold">
+                <button 
+                  (click)="setRealtimeDataType.emit('jma_s')"
+                  [title]="'지표면 센서 (jma_s.gif)'"
+                  [class]="'py-1.5 px-2 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ' + (realtimeDataType() === 'jma_s' ? 'bg-emerald-600 text-white font-black shadow-sm' : (isDarkMode() ? 'bg-zinc-700/60 text-zinc-300 hover:bg-zinc-700' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'))">
+                  <span>🏔️</span>
+                  <span>지표 (jma_s)</span>
+                </button>
+                <button 
+                  (click)="setRealtimeDataType.emit('jma_b')"
+                  [title]="'지중/지하 센서 (jma_b.gif)'"
+                  [class]="'py-1.5 px-2 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ' + (realtimeDataType() === 'jma_b' ? 'bg-emerald-600 text-white font-black shadow-sm' : (isDarkMode() ? 'bg-zinc-700/60 text-zinc-300 hover:bg-zinc-700' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'))">
+                  <span>🕳️</span>
+                  <span>지중 (jma_b)</span>
+                </button>
+              </div>
+            </div>
+          }
+
           <!-- Intensity Map Display Mode Toggle (Earthquake Tab) -->
           @if (activeTab() === 'earthquake' && widgets().showIntensityMode) {
             <div [class]="'backdrop-blur-md border rounded-xl shadow-lg p-2 flex flex-col gap-1.5 transition-all w-52 ' + (isDarkMode() ? 'bg-zinc-800/90 border-zinc-700' : 'bg-white/90 border-zinc-200')">
@@ -239,6 +266,11 @@ export interface WidgetSettings {
             </label>
 
             <label class="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 cursor-pointer">
+              <span>📡 관측 센서 종류 (지표 jma_s / 지중 jma_b)</span>
+              <input type="checkbox" [checked]="widgets().showRealtimeDataType" (change)="toggleWidget('showRealtimeDataType')" class="accent-indigo-600 w-4 h-4 cursor-pointer" />
+            </label>
+
+            <label class="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 cursor-pointer">
               <span>🔊 알림음 미리듣기 패널</span>
               <input type="checkbox" [checked]="widgets().showSoundPreview" (change)="toggleWidget('showSoundPreview')" class="accent-indigo-600 w-4 h-4 cursor-pointer" />
             </label>
@@ -267,6 +299,7 @@ export class ControlsPanelComponent implements OnInit {
   showWaveRings = input<boolean>(true);
   isDarkMode = input<boolean>(false);
   intensityDisplayMode = input<'areas' | 'stations' | 'both'>('both');
+  realtimeDataType = input<'jma_s' | 'jma_b'>('jma_s');
 
   resetMapView = output<void>();
   focusDetectedGrid = output<void>();
@@ -274,6 +307,7 @@ export class ControlsPanelComponent implements OnInit {
   toggleWaveRings = output<void>();
   toggleDarkMode = output<void>();
   setIntensityDisplayMode = output<'areas' | 'stations' | 'both'>();
+  setRealtimeDataType = output<'jma_s' | 'jma_b'>();
   playDetectionSound = output<number | string>();
   playShindoAudio = output<void>();
 
@@ -292,6 +326,7 @@ export class ControlsPanelComponent implements OnInit {
     showWaveRingsToggle: true,
     showDarkModeToggle: true,
     showIntensityMode: true,
+    showRealtimeDataType: true,
     showSoundPreview: true
   });
 
@@ -329,6 +364,7 @@ export class ControlsPanelComponent implements OnInit {
       showWaveRingsToggle: true,
       showDarkModeToggle: true,
       showIntensityMode: true,
+      showRealtimeDataType: true,
       showSoundPreview: true
     };
     this.widgets.set(def);

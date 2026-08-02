@@ -101,12 +101,13 @@ app.get('/api/latest-time', async (req, res) => {
 app.get('/api/acmap-img', async (req, res) => {
   try {
     const time = req.query['time'];
+    const type = req.query['type'] === 'jma_b' ? 'acmap_b' : 'acmap_s';
     if (!time || typeof time !== 'string') {
       res.status(400).json({ error: 'Missing time parameter' });
       return;
     }
     const dateStr = time.substring(0, 8);
-    const url = `http://www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/acmap_s/${dateStr}/${time}.acmap_s.gif`;
+    const url = `http://www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/${type}/${dateStr}/${time}.${type}.gif`;
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
@@ -128,12 +129,13 @@ app.get('/api/acmap-img', async (req, res) => {
 app.get('/api/realtime-img', async (req, res) => {
   try {
     const time = req.query['time'];
+    const imgType = req.query['type'] === 'jma_b' ? 'jma_b' : 'jma_s';
     if (!time || typeof time !== 'string') {
       res.status(400).json({ error: 'Missing time parameter' });
       return;
     }
     const dateStr = time.substring(0, 8);
-    const url = `http://www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/jma_s/${dateStr}/${time}.jma_s.gif`;
+    const url = `http://www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/${imgType}/${dateStr}/${time}.${imgType}.gif`;
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
