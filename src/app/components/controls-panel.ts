@@ -197,6 +197,11 @@ export interface WidgetSettings {
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
                 신규 지진 알림음 듣기
               </button>
+              <button 
+                (click)="testNotification.emit()" 
+                class="w-full py-1 px-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-[11px] flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-all">
+                🔔 브라우저 알림 테스트
+              </button>
               <div class="grid grid-cols-3 gap-1">
                 <button (click)="playDetectionSound.emit(1)" class="px-1.5 py-1 text-[11px] rounded-md font-bold transition-all cursor-pointer bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600/30">진도 1</button>
                 <button (click)="playDetectionSound.emit(2)" class="px-1.5 py-1 text-[11px] rounded-md font-bold transition-all cursor-pointer bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/30">진도 2</button>
@@ -294,7 +299,7 @@ export interface WidgetSettings {
   `
 })
 export class ControlsPanelComponent implements OnInit {
-  activeTab = input<'earthquake' | 'realtime'>('earthquake');
+  activeTab = input<'earthquake' | 'realtime' | 'est_shindo_region'>('earthquake');
   hasDetectedGrids = input<boolean>(false);
   showWaveRings = input<boolean>(true);
   isDarkMode = input<boolean>(false);
@@ -310,6 +315,7 @@ export class ControlsPanelComponent implements OnInit {
   setRealtimeDataType = output<'jma_s' | 'jma_b'>();
   playDetectionSound = output<number | string>();
   playShindoAudio = output<void>();
+  testNotification = output<void>();
 
   isCollapsed = signal<boolean>(false);
   showSettingsModal = signal<boolean>(false);

@@ -5,6 +5,8 @@ import { SoundService } from './services/sound.service';
 import { P2pQuakeService } from './services/p2p-quake.service';
 import { WolfxEewService } from './services/wolfx-eew.service';
 import { MapService } from './services/map.service';
+import { EstShindoMaskService } from './services/est-shindo-mask.service';
+import { NotificationService } from './services/notification.service';
 import { getJindoBadgeStyle, getTsunamiText, getJindoString, getIntensityColor, getJindoFromColor } from './utils/jma.utils';
 
 import { HeaderNavComponent } from './components/header-nav';
@@ -37,8 +39,11 @@ declare const mapboxgl: any;
         [p2pHistoryCount]="p2pHistoryList().length"
         [latestTime]="latestTime()"
         [isDarkMode]="isDarkMode()"
+        [notificationPermission]="notificationService.permission()"
+        [notificationEnabled]="notificationService.isEnabled()"
         (tabChange)="setTab($event)"
-        (toggleHistory)="isHistoryOpen.set(!isHistoryOpen())">
+        (toggleHistory)="isHistoryOpen.set(!isHistoryOpen())"
+        (toggleNotification)="toggleNotification()">
       </app-header-nav>
 
       <!-- EEW Display -->
@@ -98,7 +103,8 @@ declare const mapboxgl: any;
         (setIntensityDisplayMode)="setIntensityDisplayMode($event)"
         (setRealtimeDataType)="setRealtimeDataType($event)"
         (playDetectionSound)="playDetectionSound($event)"
-        (playShindoAudio)="playShindoAudio()">
+        (playShindoAudio)="playShindoAudio()"
+        (testNotification)="testNotification()">
       </app-controls-panel>
 
       <!-- Realtime GIF Box & EEW Display under GIF (Visible in Realtime Tab) -->
@@ -143,7 +149,7 @@ declare const mapboxgl: any;
 export class App implements AfterViewInit, OnDestroy {
   @ViewChild('mapContainer') mapContainer!: ElementRef<HTMLElement>;
   
-  activeTab = signal<'realtime' | 'earthquake'>('earthquake');
+  activeTab = signal<'realtime' | 'earthquake' | 'est_shindo_region'>('earthquake');
 
   private map: any;
   private geojson: any = null;
@@ -159,6 +165,23 @@ export class App implements AfterViewInit, OnDestroy {
   p2pQuakeService = inject(P2pQuakeService);
   wolfxEewService = inject(WolfxEewService);
   mapService = inject(MapService);
+  estShindoMaskService = inject(EstShindoMaskService);
+  notificationService = inject(NotificationService);
+
+  toggleNotification() {
+    this.notificationService.toggleEnabled();
+  }
+
+  testNotification() {
+    if (this.notificationService.permission() !== 'granted') {
+      this.notificationService.requestPermission();
+    } else {
+      this.notificationService.sendNotification('🔔 [테스트] 브라우저 알림 테스트', {
+        body: '흔들림 감지, 지진 정보 및 EEW(긴급지진속보) 수신 시 브라우저 알림이 정상적으로 전송됩니다.',
+        tag: 'test-notification'
+      });
+    }
+  }
 
   seismicData: Record<string, { distance: number, pTime: number, sTime: number }[]> = {};
   
@@ -380,8 +403,13 @@ export class App implements AfterViewInit, OnDestroy {
   parseJSTTime(str: any): number {
     if (!str) return 0;
     if (typeof str === 'number') return str;
-    if (!isNaN(Number(str)) && Number(str) > 1000000000000) return Number(str);
+    if (typeof str === 'string' && !isNaN(Number(str)) && Number(str) > 1000000000000) return Number(str);
     
+    if (typeof str === 'string' && (str.includes('Z') || str.includes('+') || str.includes('T'))) {
+      const parsed = Date.parse(str);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+
     const clean = String(str).replace(/[^\d]/g, '');
     if (clean.length >= 14) {
       const yyyy = parseInt(clean.substring(0, 4), 10);
@@ -391,6 +419,13 @@ export class App implements AfterViewInit, OnDestroy {
       const mi = parseInt(clean.substring(10, 12), 10);
       const ss = parseInt(clean.substring(12, 14), 10);
       return Date.UTC(yyyy, mm, dd, hh - 9, mi, ss);
+    } else if (clean.length === 12) {
+      const yyyy = parseInt(clean.substring(0, 4), 10);
+      const mm = parseInt(clean.substring(4, 6), 10) - 1;
+      const dd = parseInt(clean.substring(6, 8), 10);
+      const hh = parseInt(clean.substring(8, 10), 10);
+      const mi = parseInt(clean.substring(10, 12), 10);
+      return Date.UTC(yyyy, mm, dd, hh - 9, mi, 0);
     }
     return 0;
   }
@@ -402,9 +437,11 @@ export class App implements AfterViewInit, OnDestroy {
       const elapsed = (Date.now() - (eew.simulationStartTime || Date.now())) / 1000 + (eew.simulatedElapsed || 5);
       return elapsed >= 0 && elapsed < 180;
     }
-    if (!eew.Title || (!eew.OriginTime && !eew.AnnouncedTime)) return false;
     
-    const origin = this.parseJSTTime(eew.OriginTime || eew.AnnouncedTime);
+    const timeStr = eew.OriginTime || eew.AnnouncedTime || eew.ReportTime;
+    if (!timeStr) return false;
+
+    const origin = this.parseJSTTime(timeStr);
     if (!origin) return false;
     const now = Date.now();
     const elapsedSeconds = (now - origin) / 1000;
@@ -618,6 +655,10 @@ export class App implements AfterViewInit, OnDestroy {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
           });
+          mapInstance.addSource('est-shindo-mask-area', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+          });
 
           // Area forecast layers (below waves and points)
           mapInstance.addLayer({
@@ -634,6 +675,27 @@ export class App implements AfterViewInit, OnDestroy {
             id: 'area-forecast-line',
             type: 'line',
             source: 'area-forecast',
+            paint: {
+              'line-color': this.isDarkMode() ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.15)',
+              'line-width': 0.7
+            }
+          });
+
+          // Experimental EstShindo Mask area layers
+          mapInstance.addLayer({
+            id: 'est-shindo-mask-fill',
+            type: 'fill',
+            source: 'est-shindo-mask-area',
+            paint: {
+              'fill-color': ['coalesce', ['get', 'color'], 'transparent'],
+              'fill-opacity': ['coalesce', ['get', 'opacity'], 0.75]
+            }
+          });
+
+          mapInstance.addLayer({
+            id: 'est-shindo-mask-line',
+            type: 'line',
+            source: 'est-shindo-mask-area',
             paint: {
               'line-color': this.isDarkMode() ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.15)',
               'line-width': 0.7
@@ -1007,6 +1069,14 @@ export class App implements AfterViewInit, OnDestroy {
       this.fetchTime();
     }
 
+    // EEW expiration check: clear stale EEW
+    const currentEew = this.eewData();
+    if (currentEew && !this.isActiveEEW(currentEew)) {
+      this.wolfxEewService.eewData.set(null);
+      this.wolfxEewService.isEewDismissed.set(false);
+      this.updateLayerVisibility();
+    }
+
     // 2. blink detected layer tick (500ms)
     const hasDetectedEvents = Array.from(this.stationsState.values()).some(s => s.event !== null);
     if (hasDetectedEvents && this.map && this.map.getLayer('detected-layer')) {
@@ -1064,13 +1134,45 @@ export class App implements AfterViewInit, OnDestroy {
   historyOffset = signal(0);
 
   private lastSeenQuakeId: string | null = null;
+  private lastEewKey: string | null = null;
+  private lastEewTime = 0;
+
+  private getQuakeUniqueKey(item: any): string {
+    if (!item) return '';
+    const id = item.id;
+    const eqTime = item.earthquake?.time || item.time || '';
+    const issueType = item.issue?.type || '';
+    const maxScale = item.earthquake?.maxScale ?? '';
+    const hypName = item.earthquake?.hypocenter?.name || '';
+    if (id) return `${id}_${eqTime}_${issueType}`;
+    return `${eqTime}_${issueType}_${maxScale}_${hypName}`;
+  }
+
+  private handleEewReceived(mappedEew: any) {
+    if (!mappedEew) return;
+    const eewKey = `${mappedEew.AnnouncedTime || ''}_${mappedEew.OriginTime || ''}_${mappedEew.Hypocenter || ''}_${mappedEew.MaxIntensity || ''}`;
+    const now = Date.now();
+
+    this.wolfxEewService.eewData.set(mappedEew);
+    this.wolfxEewService.isEewDismissed.set(false);
+    this.updateP2pEpicenterMap();
+    this.updateAreaIntensityMap(mappedEew);
+    this.updateLayerVisibility();
+
+    if (eewKey !== this.lastEewKey || (now - this.lastEewTime > 10000)) {
+      this.lastEewKey = eewKey;
+      this.lastEewTime = now;
+      this.playShindoAudio(mappedEew.MaxIntensity);
+      this.notificationService.notifyEew(mappedEew);
+    }
+  }
 
   private async startP2pQuake() {
     this.historyOffset.set(0);
     const history = await this.p2pQuakeService.fetchHistory(0);
     if (history.length > 0) {
       const latest = history[0];
-      this.lastSeenQuakeId = latest.id || latest.earthquake?.time || latest.time || null;
+      this.lastSeenQuakeId = this.getQuakeUniqueKey(latest);
       this.p2pQuakeService.selectedQuake.set(latest);
       this.updateP2pEpicenterMap(latest);
       this.updateAreaIntensityMap(latest);
@@ -1079,28 +1181,25 @@ export class App implements AfterViewInit, OnDestroy {
 
     this.p2pQuakeService.connectWebSocket(
       (data) => {
-        this.lastSeenQuakeId = data.id || data.earthquake?.time || data.time || null;
-        this.p2pQuakeService.selectedQuake.set(data);
-        this.playShindoAudio(data.earthquake?.maxScale);
-        this.setTab('earthquake');
-        this.updateP2pEpicenterMap(data);
-        this.updateAreaIntensityMap(data);
-        this.focusOnEarthquake(data);
+        const newKey = this.getQuakeUniqueKey(data);
+        if (newKey && newKey !== this.lastSeenQuakeId) {
+          this.lastSeenQuakeId = newKey;
+          this.p2pQuakeService.selectedQuake.set(data);
+          this.playShindoAudio(data.earthquake?.maxScale);
+          this.notificationService.notifyQuake(data);
+          this.setTab('earthquake');
+          this.updateP2pEpicenterMap(data);
+          this.updateAreaIntensityMap(data);
+          this.focusOnEarthquake(data);
+        }
       },
       (mappedEew) => {
-        this.wolfxEewService.eewData.set(mappedEew);
-        this.wolfxEewService.isEewDismissed.set(false);
-        this.playShindoAudio(mappedEew.MaxIntensity);
-        this.updateP2pEpicenterMap();
-        this.updateAreaIntensityMap(mappedEew);
-        this.updateLayerVisibility();
+        this.handleEewReceived(mappedEew);
       }
     );
 
     this.wolfxEewService.connectWebSocket((_mappedEew) => {
-      this.playShindoAudio(_mappedEew.MaxIntensity);
-      this.updateP2pEpicenterMap();
-      this.updateLayerVisibility();
+      this.handleEewReceived(_mappedEew);
     });
 
     if (typeof window !== 'undefined') {
@@ -1108,11 +1207,12 @@ export class App implements AfterViewInit, OnDestroy {
         const updatedHistory = await this.p2pQuakeService.fetchHistory(0);
         if (updatedHistory.length > 0) {
           const newest = updatedHistory[0];
-          const newId = newest.id || newest.earthquake?.time || newest.time || null;
-          if (newId && newId !== this.lastSeenQuakeId) {
-            this.lastSeenQuakeId = newId;
+          const newKey = this.getQuakeUniqueKey(newest);
+          if (newKey && newKey !== this.lastSeenQuakeId) {
+            this.lastSeenQuakeId = newKey;
             this.p2pQuakeService.selectedQuake.set(newest);
             this.playShindoAudio(newest.earthquake?.maxScale);
+            this.notificationService.notifyQuake(newest);
             this.setTab('earthquake');
             this.updateP2pEpicenterMap(newest);
             this.updateAreaIntensityMap(newest);
@@ -1199,16 +1299,38 @@ export class App implements AfterViewInit, OnDestroy {
       if (this.map.getLayer('area-forecast-line')) {
         this.map.setPaintProperty('area-forecast-line', 'line-color', isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.15)');
       }
+      if (this.map.getLayer('est-shindo-mask-line')) {
+        this.map.setPaintProperty('est-shindo-mask-line', 'line-color', isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.15)');
+      }
     }
   }
 
   fetchSeismicData() {
     this.http.get<any>('/api/seismic-data').subscribe({
       next: (data) => {
-        this.seismicData = data;
+        if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+          this.seismicData = data;
+        } else {
+          this.loadSeismicDataFallback();
+        }
       },
       error: (e) => {
-        console.warn('Failed to load seismic data', e);
+        console.warn('Failed to load seismic data from API, trying fallback:', e);
+        this.loadSeismicDataFallback();
+      }
+    });
+  }
+
+  private loadSeismicDataFallback() {
+    this.http.get<any>('/tjma.json').subscribe({
+      next: (data) => {
+        if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+          this.seismicData = data;
+          console.log('Successfully loaded seismic data from fallback /tjma.json');
+        }
+      },
+      error: (err) => {
+        console.error('Failed to load seismic data fallback /tjma.json', err);
       }
     });
   }
@@ -1469,6 +1591,7 @@ export class App implements AfterViewInit, OnDestroy {
     this.updateAreaIntensityMap(mockEew);
     this.updateLayerVisibility();
     this.playShindoAudio('5+');
+    this.notificationService.notifyEew(mockEew);
     
     if (this.map) {
       this.map.flyTo({
@@ -1502,6 +1625,10 @@ export class App implements AfterViewInit, OnDestroy {
     this.currentGifUrl.set(img.src);
     this.acmapGifUrl.set(`/api/acmap-img?time=${time}&type=${dataType}`);
     this.estshindoGifUrl.set(`/api/estshindo-img?time=${time}`);
+
+    if (this.activeTab() === 'est_shindo_region') {
+      this.updateEstShindoMaskLayer();
+    }
     img.onload = () => {
       const canvas = document.createElement('canvas');
       canvas.width = img.width;
@@ -1668,6 +1795,7 @@ export class App implements AfterViewInit, OnDestroy {
         
         if (soundJindoToPlay > -3) {
           this.playDetectionSound(soundJindoToPlay);
+          this.notificationService.notifyShakingDetection(getJindoString(soundJindoToPlay) || soundJindoToPlay);
         }
       }
 
@@ -1764,10 +1892,21 @@ export class App implements AfterViewInit, OnDestroy {
     }
   }
 
-  setTab(tab: 'realtime' | 'earthquake') {
+  setTab(tab: 'realtime' | 'earthquake' | 'est_shindo_region') {
     this.activeTab.set(tab);
     this.updateLayerVisibility();
-    if (tab === 'earthquake') {
+    if (tab === 'est_shindo_region') {
+      this.updateEstShindoMaskLayer();
+      if (this.map) {
+        this.map.flyTo({
+          center: [137.5, 36.5],
+          zoom: 5.2,
+          pitch: 0,
+          bearing: 0,
+          duration: 1000
+        });
+      }
+    } else if (tab === 'earthquake') {
       if (!this.selectedQuake() && this.p2pHistoryList().length > 0) {
         this.selectedQuake.set(this.p2pHistoryList()[0]);
       }
@@ -1787,6 +1926,19 @@ export class App implements AfterViewInit, OnDestroy {
           duration: 1000
         });
       }
+    }
+  }
+
+  async updateEstShindoMaskLayer() {
+    const gifUrl = this.estshindoGifUrl();
+    if (!gifUrl || !this.map) return;
+    try {
+      const maskedGeoJSON = await this.estShindoMaskService.getMaskedGeoJSON(gifUrl);
+      if (maskedGeoJSON && this.map.getSource('est-shindo-mask-area')) {
+        this.map.getSource('est-shindo-mask-area').setData(maskedGeoJSON);
+      }
+    } catch (err) {
+      console.warn('Failed to update EstShindo mask layer:', err);
     }
   }
 
@@ -1859,7 +2011,9 @@ export class App implements AfterViewInit, OnDestroy {
 
   updateLayerVisibility() {
     if (!this.map) return;
-    const isEarthquakeTab = this.activeTab() === 'earthquake';
+    const currentTab = this.activeTab();
+    const isEarthquakeTab = currentTab === 'earthquake';
+    const isEstShindoTab = currentTab === 'est_shindo_region';
     const mode = this.intensityDisplayMode();
 
     const eew = this.eewData();
@@ -1879,9 +2033,23 @@ export class App implements AfterViewInit, OnDestroy {
       }
     }
 
-    // 관측점 레이어 (points-layer) : 실시간 탭에서만 표시
+    // 실험적 예상진도 행정구역 마스킹 레이어 (est-shindo-mask-fill, est-shindo-mask-line)
+    const estShindoVis = isEstShindoTab ? 'visible' : 'none';
+    if (this.map.getLayer('est-shindo-mask-fill')) {
+      this.map.setLayoutProperty('est-shindo-mask-fill', 'visibility', estShindoVis);
+    }
+    if (this.map.getLayer('est-shindo-mask-line')) {
+      this.map.setLayoutProperty('est-shindo-mask-line', 'visibility', estShindoVis);
+    }
+
+    // 관측점 레이어 (points-layer) : 실시간 탭 및 예상진도 탭에서 표시하되, 예상진도 탭에서는 파란색/관측소 점들을 매우 흐리게(0.1) 처리
     if (this.map.getLayer('points-layer')) {
       this.map.setLayoutProperty('points-layer', 'visibility', isEarthquakeTab ? 'none' : 'visible');
+      if (isEstShindoTab) {
+        this.map.setPaintProperty('points-layer', 'circle-opacity', 0.1);
+      } else {
+        this.map.setPaintProperty('points-layer', 'circle-opacity', 1.0);
+      }
     }
 
     // 흔들림 격자 레이어 (detected-layer) : 실시간 탭이거나, 흔들림 격자가 존재하는 경우 지진 예보구역 탭에서도 표시

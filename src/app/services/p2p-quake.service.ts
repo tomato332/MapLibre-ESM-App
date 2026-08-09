@@ -11,6 +11,8 @@ export class P2pQuakeService {
 
   private p2pWs: WebSocket | null = null;
   private isIntentionalDisconnect = false;
+  private reconnectAttempt = 0;
+  private maxReconnectDelay = 30000;
 
   private sortHistory(list: P2PQuakeItem[]): P2PQuakeItem[] {
     return [...list].sort((a, b) => {
@@ -73,6 +75,18 @@ export class P2pQuakeService {
     this.isIntentionalDisconnect = false;
     this.p2pWs = new WebSocket('wss://api.p2pquake.net/v2/ws');
 
+    this.p2pWs.onopen = () => {
+      this.reconnectAttempt = 0;
+      console.log('P2P WebSocket connected successfully');
+    };
+
+    this.p2pWs.onerror = (err) => {
+      console.warn('P2P WebSocket error occurred:', err);
+      if (this.p2pWs) {
+        this.p2pWs.close();
+      }
+    };
+
     this.p2pWs.onmessage = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
@@ -124,7 +138,11 @@ export class P2pQuakeService {
 
     this.p2pWs.onclose = () => {
       if (!this.isIntentionalDisconnect) {
-        const reconnectTime = Date.now() + 5000;
+        const delay = Math.min(5000 * Math.pow(1.5, this.reconnectAttempt), this.maxReconnectDelay);
+        this.reconnectAttempt++;
+        console.log(`P2P WebSocket disconnected. Reconnecting in ${Math.round(delay / 1000)}s...`);
+
+        const reconnectTime = Date.now() + delay;
         const checkReconnect = () => {
           if (this.isIntentionalDisconnect) return;
           if (Date.now() >= reconnectTime) {

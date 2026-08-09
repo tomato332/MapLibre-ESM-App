@@ -249,29 +249,43 @@ export class SoundService {
     }
   }
 
+  private lastShindoPlayTime = 0;
+  private lastShindoScale: string | number | undefined = undefined;
+
   playShindoAudio(scale?: number | string): void {
     if (typeof window === 'undefined') return;
+
+    const now = Date.now();
+    if (now - this.lastShindoPlayTime < 1500 && this.lastShindoScale === scale) {
+      return;
+    }
+    this.lastShindoPlayTime = now;
+    this.lastShindoScale = scale;
+
     try {
       const audio = this.shindoAudio || new Audio('/Shindo.mp3');
       audio.currentTime = 0;
       audio.volume = 0.85;
       const playPromise = audio.play();
 
+      let scaleSoundTriggered = false;
+      const triggerScaleSound = () => {
+        if (scaleSoundTriggered || scale === undefined) return;
+        scaleSoundTriggered = true;
+        this.playIntensitySound(scale);
+      };
+
       if (scale !== undefined) {
         // 진도 알림음도 함께 플레이 (약간의 딜레이로 오버랩)
         setTimeout(() => {
-          this.playIntensitySound(scale);
+          triggerScaleSound();
         }, 200);
       }
 
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
           console.warn('Shindo.mp3 playback failed/blocked, fallback to synthetic sound:', err);
-          if (scale !== undefined) {
-            this.playIntensitySound(scale);
-          } else {
-            this.playIntensitySound(5);
-          }
+          triggerScaleSound();
         });
       }
     } catch (e) {

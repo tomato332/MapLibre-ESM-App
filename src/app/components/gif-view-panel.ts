@@ -90,6 +90,20 @@ export class GifViewPanelComponent {
   isActiveEEW(eew: EEWMessage | null): boolean {
     if (!eew) return false;
     if (eew.isCancel) return false;
+    const timeStr = eew.OriginTime || eew.AnnouncedTime || eew.ReportTime;
+    if (!timeStr) return true;
+    const clean = String(timeStr).replace(/[^\d]/g, '');
+    if (clean.length >= 12) {
+      const yyyy = parseInt(clean.substring(0, 4), 10);
+      const mm = parseInt(clean.substring(4, 6), 10) - 1;
+      const dd = parseInt(clean.substring(6, 8), 10);
+      const hh = parseInt(clean.substring(8, 10), 10);
+      const mi = parseInt(clean.substring(10, 12), 10);
+      const ss = clean.length >= 14 ? parseInt(clean.substring(12, 14), 10) : 0;
+      const origin = Date.UTC(yyyy, mm, dd, hh - 9, mi, ss);
+      const elapsed = (Date.now() - origin) / 1000;
+      if (elapsed >= 240) return false;
+    }
     return true;
   }
 }
