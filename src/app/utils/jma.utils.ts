@@ -70,8 +70,7 @@ export function getJindoFromColor(r: number, g: number, b: number): number {
   let minDistance = Infinity;
   let matchedJindo = -3;
 
-  for (let i = 0; i < colorMap.length; i++) {
-    const item = colorMap[i];
+  for (const item of colorMap) {
     const dr = r - item.R;
     const dg = g - item.G;
     const db = b - item.B;

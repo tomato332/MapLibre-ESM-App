@@ -5,7 +5,8 @@ import {
   writeResponseToNodeResponse,
 } from '@angular/ssr/node';
 import express from 'express';
-import {join} from 'node:path';
+import { join, resolve } from 'node:path';
+import https from 'node:https';
 import fs from 'node:fs';
 
 const browserDistFolder = join(import.meta.dirname, '../browser');
@@ -18,9 +19,9 @@ app.get('/api/seismic-data', (req, res) => {
     const filePath = join(process.cwd(), 'tjma2020a.-00000');
     const content = fs.readFileSync(filePath, 'utf-8');
     const lines = content.split('\n');
-    
+
     const result: Record<string, { distance: number, pTime: number, sTime: number }[]> = {};
-    
+
     for (const line of lines) {
       if (!line.trim()) continue;
       const parts = line.trim().split(/\s+/);
@@ -29,14 +30,14 @@ app.get('/api/seismic-data', (req, res) => {
         const sTime = parseFloat(parts[3]);
         const depth = parts[4];
         const distance = parseFloat(parts[5]);
-        
+
         if (!result[depth]) {
           result[depth] = [];
         }
         result[depth].push({ distance, pTime, sTime });
       }
     }
-    
+
     res.json(result);
   } catch (error) {
     console.warn('Failed to read seismic data:', error);
@@ -108,7 +109,7 @@ app.get('/api/acmap-img', async (req, res) => {
     }
     const dateStr = time.substring(0, 8);
     const url = `http://www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/${type}/${dateStr}/${time}.${type}.gif`;
-    
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
 
@@ -136,7 +137,7 @@ app.get('/api/realtime-img', async (req, res) => {
     }
     const dateStr = time.substring(0, 8);
     const url = `http://www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/${imgType}/${dateStr}/${time}.${imgType}.gif`;
-    
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
 
@@ -163,7 +164,7 @@ app.get('/api/pswave-img', async (req, res) => {
     }
     const dateStr = time.substring(0, 8);
     const url = `http://www.kmoni.bosai.go.jp/data/map_img/PSWaveImg/eew/${dateStr}/${time}.eew.gif`;
-    
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
 
@@ -192,7 +193,7 @@ app.get('/api/estshindo-img', async (req, res) => {
     }
     const dateStr = time.substring(0, 8);
     const url = `http://www.kmoni.bosai.go.jp/data/map_img/EstShindoImg/eew/${dateStr}/${time}.eew.gif`;
-    
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
 
@@ -240,14 +241,24 @@ app.use((req: express.Request, res: express.Response, next: express.NextFunction
  * The server listens on the port defined by the `PORT` environment variable, or defaults to 4000.
  */
 if (isMainModule(import.meta.url) || process.env['pm_id']) {
-  const port = process.env['PORT'] || 4000;
-  app.listen(port, (error) => {
-    if (error) {
-      throw error;
-    }
+  const host = process.env['HOST'] || "0.0.0.0";
+  const port = Number(process.env['PORT']) || 3000;
+  const certPath = resolve("./cert.pem");
+  const keyPath = resolve("./key.pem");
 
-    console.log(`Node Express server listening on http://localhost:${port}`);
-  });
+  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+    const sslOptions = {
+      cert: fs.readFileSync(certPath),
+      key: fs.readFileSync(keyPath)
+    };
+    https.createServer(sslOptions, app).listen(port, host, () => {
+      console.log(`Node Express server listening on https://${host}:${port}`);
+    });
+  } else {
+    app.listen(port, host, () => {
+      console.log(`Node Express server listening on http://${host}:${port}`);
+    });
+  }
 }
 
 /**

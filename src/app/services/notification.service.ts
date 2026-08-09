@@ -137,7 +137,7 @@ export class NotificationService {
   }
 
   // 3. 흔들림 감지 (Shaking Detection) 알림
-  notifyShakingDetection(intensity: number | string, locationCount?: number): void {
+  notifyShakingDetection(intensity: number | string, _locationCount?: number): void {
     const title = `⚡ 실시간 지진 흔들림 감지`;
     const body = `관측망에서 진도 ${intensity} 수준의 주요 흔들림이 감지되었습니다.`;
 

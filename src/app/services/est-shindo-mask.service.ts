@@ -17,7 +17,7 @@ export class EstShindoMaskService {
 
   private areaForecastGeoJSON: any = null;
   private pointsData: any[] = [];
-  private lut: Map<string, Array<{ x: number; y: number }>> = new Map();
+  private lut = new Map<string, { x: number; y: number }[]>();
   private isInitialized = false;
 
   // Polynomial regression coefficients for (lon, lat) -> (px, py)
