@@ -67,6 +67,11 @@ export class P2pQuakeService {
     return [];
   }
 
+  async loadMoreHistory(): Promise<P2PQuakeItem[]> {
+    const currentOffset = this.p2pHistoryList().length;
+    return this.fetchHistory(currentOffset);
+  }
+
   connectWebSocket(
     onNewQuake: (data: P2PQuakeItem) => void,
     onEewReceived: (mappedEew: any) => void
